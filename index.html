@@ -635,19 +635,7 @@
             }
         }
 
-        // 用于跟踪阈值数据接收顺序的计数器
-        let thresholdCounter = 0;
-        
         function parseSensorData(line) {
-            // 尝试将行解析为数字（可能是阈值数据）
-            const numericValue = parseInt(line.trim());
-            
-            // 如果是有效的数字，并且不是传感器数据行，那么可能是阈值数据
-            if (!isNaN(numericValue) && !line.includes(':') && !line.includes('Alarm') && !line.includes('is ok')) {
-                processThresholdData(numericValue);
-                return; // 处理完阈值数据后直接返回
-            }
-            
             // 更新传感器数据显示
             if (line.includes('MQ-2:')) {
                 const match = line.match(/MQ-2:(\d+)/);
@@ -685,97 +673,11 @@
                 }
             }
             
-            // 解析阈值确认消息
-            if (line.includes('is ok')) {
-                console.log('阈值调整成功确认');
-                // 重置阈值计数器，因为新的阈值调整开始了
-                thresholdCounter = 0;
-            }
-            
-            // 解析报警触发消息
-            if (line.includes('Alarm triggered')) {
-                const statusElement = document.getElementById('alarmStatus');
-                const alarmBtn = document.getElementById('alarmBtn');
-                
-                // 根据当前状态更新显示
-                if (isAlarmActive) {
-                    alarmBtn.textContent = '取消报警';
-                    alarmBtn.style.background = '#ffc107';
-                    alarmBtn.style.color = '#333';
-                    statusElement.textContent = '报警已触发！';
-                    statusElement.style.color = '#dc3545';
-                } else {
-                    alarmBtn.textContent = '触发报警';
-                    alarmBtn.style.background = '#dc3545';
-                    alarmBtn.style.color = 'white';
-                    statusElement.textContent = '报警已取消！';
-                    statusElement.style.color = '#28a745';
-                }
-            }
-            
             // 更新时间显示
             updateLastTime();
             
             // 收集数据
             collectSensorData();
-        }
-        
-        // 处理从STM32发送过来的阈值数据
-        function processThresholdData(value) {
-            console.log(`收到阈值数据 #${thresholdCounter}: ${value}`);
-            
-            // 根据计数器的值确定当前接收的是哪个阈值
-            // 发送顺序：MQ_2_Max, MQ_2_Min, Temp_Max, Temp_Min, Hum_Max, Hum_Min, HCSR04_Max, HCSR04_Min
-            let elementId = '';
-            
-            switch (thresholdCounter) {
-                case 0:
-                    elementId = 'mq2Max';
-                    break;
-                case 1:
-                    elementId = 'mq2Min';
-                    break;
-                case 2:
-                    elementId = 'tempMax';
-                    break;
-                case 3:
-                    elementId = 'tempMin';
-                    break;
-                case 4:
-                    elementId = 'humMax';
-                    break;
-                case 5:
-                    elementId = 'humMin';
-                    break;
-                case 6:
-                    elementId = 'hcsr04Max';
-                    break;
-                case 7:
-                    elementId = 'hcsr04Min';
-                    break;
-                default:
-                    // 如果计数器超出范围，可能是新的一轮开始，重置计数器
-                    console.log('阈值计数器超出范围，重置为0');
-                    thresholdCounter = 0;
-                    elementId = 'mqMax';
-                    break;
-            }
-            
-            // 更新页面上的阈值显示
-            const element = document.getElementById(elementId);
-            if (element) {
-                element.textContent = value;
-                console.log(`更新阈值 ${elementId} 为 ${value}`);
-            }
-            
-            // 增加计数器，准备接收下一个阈值
-            thresholdCounter++;
-            
-            // 如果已经接收了8个阈值（一轮完整的数据），重置计数器
-            if (thresholdCounter >= 8) {
-                console.log('完成一轮阈值数据接收，重置计数器');
-                thresholdCounter = 0;
-            }
         }
 
         function updateLastTime() {
@@ -789,7 +691,6 @@
             const command = `${sensor} ${type} ${action}`;
             sendCommand(command);
             
-            // 更新本地显示的阈值
             const elementId = sensor.toLowerCase() + type.charAt(0).toUpperCase() + type.slice(1);
             const element = document.getElementById(elementId);
             if (element) {
@@ -812,25 +713,10 @@
             try {
                 const writer = port.writable.getWriter();
                 const encoder = new TextEncoder();
-                
-                // 添加超时处理，避免写入操作无限期等待
-                const writePromise = writer.write(encoder.encode(command + '\n'));
-                const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('写入超时')), 1000)
-                );
-                
-                // 使用Promise.race来实现超时控制
-                await Promise.race([writePromise, timeoutPromise]);
-                
+                await writer.write(encoder.encode(command + '\n'));
                 writer.releaseLock();
             } catch (error) {
                 console.error('发送命令失败:', error);
-                
-                // 显示错误提示，但不阻塞界面
-                const statusElement = document.getElementById('status');
-                statusElement.innerHTML += `
-                    <div class="alert">发送命令失败: ${error.message}</div>
-                `;
             }
         }
 
